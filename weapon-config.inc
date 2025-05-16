@@ -2836,6 +2836,149 @@ stock WC_PlayerTextDrawSetPreviewVehC(playerid, PlayerText:text, color1, color2)
 	}
 #endif
 
+// -------------------------------------------------------------------------------------------------------------
+
+const WC_PACKET_CUSTOM = 252;
+const WC_PACKET_CUSTOM_SET_HUD_HA = 23;
+const WC_PACKET_CUSTOM_RESET_HUD_HA = 24;
+const WC_PACKET_CUSTOM_ENABLE_DMG_T = 25;
+
+
+// Устанавливает хп и броню в худ (для мобильного игрока)
+// В худе игрока будут отображаться установленные значения
+stock WC_SetPlayerHudHealthArmour(playerid, health, armour)
+{
+    new BitStream:bitstream = BS_New();
+ 
+    BS_WriteValue(
+        bitstream, 
+        PR_UINT8,    WC_PACKET_CUSTOM,
+        PR_UINT16,   WC_PACKET_CUSTOM_SET_HUD_HA,
+        PR_UINT8,    health,
+        PR_UINT8,    armour
+    );
+ 
+    new result = PR_SendPacket(bitstream, playerid);
+    BS_Delete(bitstream);
+    
+    return result;
+}
+
+
+// Сбрасывает установленные хп и броню в худе (для мобильного игрока)
+// В худе игрока снова будут отображаться данные из игры
+stock WC_ResetPlayerHudHealthArmour(playerid)
+{
+    new BitStream:bitstream = BS_New();
+ 
+    BS_WriteValue(
+        bitstream, 
+        PR_UINT8,    WC_PACKET_CUSTOM,
+        PR_UINT16,   WC_PACKET_CUSTOM_RESET_HUD_HA,
+    );
+ 
+    new result = PR_SendPacket(bitstream, playerid);
+    BS_Delete(bitstream);
+    
+    return result;
+}
+
+
+// Включает/отключает игроку отображение эффекта нанесения урона в полосах здоровья других игроков
+// Можно установить минимальное и максимальное значение разницы хп/армора, при котором эффект не будет срабатывать
+// Последние 2 параметра - время в мс сколько будет отображаться эффект и его скорость затухания
+stock WC_EnableDamageTakenEffect(playerid, enable, Float:minDiff = 1.0, Float:maxDif = 999.0, timer = 500, Float:fadeAmount = 10.0)
+{
+    new BitStream:bitstream = BS_New();
+    
+    BS_WriteValue(
+        bitstream,
+        PR_UINT8,    WC_PACKET_CUSTOM,
+        PR_UINT16,   WC_PACKET_CUSTOM_ENABLE_DMG_T,
+        PR_BOOL,     enable
+    );
+    
+    if (enable) {
+        BS_WriteValue(
+            bitstream, 
+            PR_FLOAT,   minDiff,
+            PR_FLOAT,   maxDif,
+            PR_UINT32,  timer,
+            PR_FLOAT,   fadeAmount
+        );
+    }
+    
+    new result = PR_SendPacket(bitstream, playerid);
+    BS_Delete(bitstream);
+    
+    return result;
+}
+
+// -------------------------------------------------------------------------------------------------------------
+
+// Отключите, если не нужно данные о реальном хп и арморе других игроков
+//#define WC_REAL_HEALTH_ARMOUR
+
+static WC_WriteOnFootSync(playerid, BitStream:bs, data[PR_OnFootSync], outgoing = false)
+{
+    BS_WriteOnFootSync(bs, data, outgoing);
+    
+#if defined WC_REAL_HEALTH_ARMOUR
+    if (outgoing)
+    {
+        BS_WriteValue(bs, 
+            PR_BOOL, true,
+            PR_UINT8, s_FakeHealth{playerid},
+            PR_UINT8, s_FakeArmour{playerid}
+        );
+    }
+#else
+#pragma unused playerid
+#endif
+}
+
+#if defined WC_REAL_HEALTH_ARMOUR
+OPacket:WC_PLAYER_SYNC(playerid, BitStream:bs)
+{
+    new whoPlayerid;
+    
+    BS_IgnoreBits(bs, 8);
+    BS_ReadValue(bs, PR_UINT16, whoPlayerid);
+    
+    if (whoPlayerid >= MAX_PLAYERS)
+        return 1;
+    
+    BS_WriteValue(bs, 
+        PR_BOOL, true,
+        PR_UINT8, s_FakeHealth{whoPlayerid},
+        PR_UINT8, s_FakeArmour{whoPlayerid}
+    );
+    
+    return 1;
+}
+
+OPacket:WC_VEHICLE_SYNC(playerid, BitStream:bs)
+{
+    new whoPlayerid;
+    
+    BS_IgnoreBits(bs, 8);
+    BS_ReadValue(bs, PR_UINT16, whoPlayerid);
+    
+    if (whoPlayerid >= MAX_PLAYERS)
+        return 1;
+    
+    BS_WriteValue(bs, 
+        PR_BOOL, true,
+        PR_UINT8, s_FakeHealth{whoPlayerid},
+        PR_UINT8, s_FakeArmour{whoPlayerid}
+    );
+    
+    return 1;
+}
+#endif
+
+// -------------------------------------------------------------------------------------------------------------
+
 /*
  * Hooked callbacks
  */
@@ -2977,6 +3120,9 @@ public OnPlayerConnect(playerid)
 		s_AlreadyConnected[playerid] = false;
 		s_FirstSpawn[playerid] = true;
 	#endif
+    
+    // Включаем игроку отображение эффекта нанесения урона в полосах здоровья других игроков
+    WC_EnableDamageTakenEffect(playerid, true);
 
 	return WC_OnPlayerConnect(playerid);
 }
@@ -4855,7 +5001,7 @@ IPacket:WC_PLAYER_SYNC(playerid, BitStream:bs)
 	}
 
 	BS_SetWriteOffset(bs, 8);
-	BS_WriteOnFootSync(bs, onFootData); // rewrite
+	WC_WriteOnFootSync(playerid, bs, onFootData); // rewrite
 
 	return 1;
 }
@@ -5201,11 +5347,37 @@ static UpdateHealthBar(playerid, bool:force = false)
 	SetFakeArmour(playerid, armour);
 
 	UpdateSyncData(playerid);
+#if 1
+	new shouldUpdate = false;
 
 	if (health != s_LastSentHealth[playerid]) {
 		s_LastSentHealth[playerid] = health;
 
 		SetPlayerHealth(playerid, 8000000.0 + float(health));
+
+		shouldUpdate = true;
+	}
+
+	if (armour != s_LastSentArmour[playerid]) {
+		s_LastSentArmour[playerid] = armour;
+
+		SetPlayerArmour(playerid, float(armour));
+
+		shouldUpdate = true;
+	}
+
+
+	if (shouldUpdate) {
+		WC_SetPlayerHudHealthArmour(playerid, health, armour);
+	}
+
+	// Отключено для демонстрании что в мобильном клиенте все работает
+#else
+	if (health != s_LastSentHealth[playerid]) {
+		s_LastSentHealth[playerid] = health;
+
+		SetPlayerHealth(playerid, 8000000.0 + float(health));
+
 
 		if (s_HealthBarVisible[playerid] && !s_IsDying[playerid]) {
 			if (s_HealthBarForeground[playerid] == PlayerText:INVALID_TEXT_DRAW) {
@@ -5259,6 +5431,7 @@ static UpdateHealthBar(playerid, bool:force = false)
 
 		SetPlayerArmour(playerid, float(armour));
 	}
+#endif
 }
 
 static SetHealthBarVisible(playerid, bool:toggle)
@@ -5272,6 +5445,8 @@ static SetHealthBarVisible(playerid, bool:toggle)
 
 	s_HealthBarVisible[playerid] = toggle;
 
+	// Отключено для демонстрании что в мобильном клиенте все работает
+#if 0
 	if (toggle) {
 		if (s_HealthBarBorder != Text:INVALID_TEXT_DRAW) {
 			TextDrawShowForPlayer(playerid, s_HealthBarBorder);
@@ -5295,6 +5470,7 @@ static SetHealthBarVisible(playerid, bool:toggle)
 			TextDrawHideForPlayer(playerid, s_HealthBarBackground);
 		}
 	}
+#endif
 }
 
 static SpawnPlayerInPlace(playerid) {
@@ -6776,7 +6952,7 @@ static SendLastSyncPacket(playerid, toplayerid, animation = 0)
 		s_LastSyncData[playerid][PR_animationFlags] = 0;
 	}
 
-	BS_WriteOnFootSync(bs, s_LastSyncData[playerid], true);
+	WC_WriteOnFootSync(playerid, bs, s_LastSyncData[playerid], true);
 	PR_SendPacket(bs, toplayerid, _, PR_RELIABLE_SEQUENCED);
 	BS_Delete(bs);
 
