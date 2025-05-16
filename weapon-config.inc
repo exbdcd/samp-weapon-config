@@ -2917,7 +2917,7 @@ stock WC_EnableDamageTakenEffect(playerid, enable, Float:minDiff = 1.0, Float:ma
 // -------------------------------------------------------------------------------------------------------------
 
 // Отключите, если не нужно данные о реальном хп и арморе других игроков
-//#define WC_REAL_HEALTH_ARMOUR
+#define WC_REAL_HEALTH_ARMOUR
 
 static WC_WriteOnFootSync(playerid, BitStream:bs, data[PR_OnFootSync], outgoing = false)
 {
