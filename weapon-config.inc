@@ -2887,7 +2887,7 @@ stock WC_ResetPlayerHudHealthArmour(playerid)
 // Включает/отключает игроку отображение эффекта нанесения урона в полосах здоровья других игроков
 // Можно установить минимальное и максимальное значение разницы хп/армора, при котором эффект не будет срабатывать
 // Последние 2 параметра - время в мс сколько будет отображаться эффект и его скорость затухания
-stock WC_EnableDamageTakenEffect(playerid, enable, Float:minDiff = 1.0, Float:maxDif = 999.0, timer = 500, Float:fadeAmount = 10.0)
+stock WC_EnableDamageTakenEffect(playerid, enable, Float:minDiff = 1.0, Float:maxDiff = 999.0, timer = 500, Float:fadeAmount = 10.0)
 {
     new BitStream:bitstream = BS_New();
     
@@ -2902,7 +2902,7 @@ stock WC_EnableDamageTakenEffect(playerid, enable, Float:minDiff = 1.0, Float:ma
         BS_WriteValue(
             bitstream, 
             PR_FLOAT,   minDiff,
-            PR_FLOAT,   maxDif,
+            PR_FLOAT,   maxDiff,
             PR_UINT32,  timer,
             PR_FLOAT,   fadeAmount
         );
